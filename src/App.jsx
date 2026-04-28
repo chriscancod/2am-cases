@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence, useInView } from 'framer-motion'
 
-const SQ_BASE = import.meta.env.VITE_SQUARE_2AM_URL || '#'
+const SQ_BASE  = import.meta.env.VITE_SQUARE_2AM_URL || '#'
+const API_URL  = import.meta.env.VITE_API_URL        || 'http://localhost:3001'
 
-// ── Products catalog — add more here as the brand grows ───────────────────────
-const PRODUCTS = [
+// ── Fallback catalog (shown when Printify API is unreachable) ─────────────────
+const FALLBACK_PRODUCTS = [
   {
     id:      'iphone-16-pro-night-black',
     name:    'iPhone 16 Pro Case',
@@ -12,6 +13,8 @@ const PRODUCTS = [
     price:   '$49',
     status:  'LIVE',
     live:    true,
+    images:  [],
+    body:    'CNC-precision cut for iPhone 16 Pro. MagSafe-compatible with zero signal loss. Drop-certified to 6ft. Matte Night Black finish engineered for the long session.',
     specs: [
       ['Device',        'iPhone 16 Pro'],
       ['Material',      'CNC Polycarbonate'],
@@ -21,8 +24,6 @@ const PRODUCTS = [
       ['Weight',        '28g'],
       ['Shipping',      '3 Business Days'],
     ],
-    body: 'CNC-precision cut for iPhone 16 Pro. MagSafe-compatible with zero signal loss. Drop-certified to 6ft. Matte Night Black finish engineered for the long session.',
-    squareUrl: SQ_BASE,
   },
   {
     id:      'iphone-16-pro-max-night-black',
@@ -31,32 +32,14 @@ const PRODUCTS = [
     price:   '$49',
     status:  'COMING SOON',
     live:    false,
+    images:  [],
+    body:    'Same precision. Bigger canvas. Coming soon.',
     specs: [
       ['Device',        'iPhone 16 Pro Max'],
       ['Material',      'CNC Polycarbonate'],
       ['Compatibility', 'MagSafe — Full Signal'],
       ['Protection',    'Drop Certified — 6ft'],
-      ['Finish',        'Matte Night Black'],
     ],
-    body: 'Same precision. Bigger canvas. Coming soon.',
-    squareUrl: null,
-  },
-  {
-    id:      'iphone-16-pro-raw',
-    name:    'iPhone 16 Pro Case',
-    variant: 'Raw Aluminum',
-    price:   '$69',
-    status:  'COMING SOON',
-    live:    false,
-    specs: [
-      ['Device',        'iPhone 16 Pro'],
-      ['Material',      'CNC 6061 Aluminum'],
-      ['Compatibility', 'MagSafe — Full Signal'],
-      ['Protection',    'Drop Certified — 4ft'],
-      ['Finish',        'Brushed Raw'],
-    ],
-    body: 'Full aluminum. No paint. No apologies.',
-    squareUrl: null,
   },
 ]
 
@@ -98,8 +81,7 @@ function Btn({ children, href, onClick, variant = 'primary', className = '', dis
     primary: disabled
       ? 'bg-white/10 border-white/10 text-white/25 cursor-not-allowed'
       : 'bg-[#FF4D00] border-[#FF4D00] text-black hover:bg-[#e64400] cursor-pointer pulse',
-    ghost:   'bg-transparent border-white/20 text-[#F5F5F5] hover:border-[#FF4D00]/50 hover:text-[#FF4D00] cursor-pointer',
-    outline: 'bg-transparent border-[#FF4D00]/40 text-[#FF4D00] hover:bg-[#FF4D00]/05 cursor-pointer',
+    ghost: 'bg-transparent border-white/20 text-[#F5F5F5] hover:border-[#FF4D00]/50 hover:text-[#FF4D00] cursor-pointer',
   }
   const cls = `${base} ${v[variant]} ${className}`
   if (href && !disabled)
@@ -124,6 +106,58 @@ function Ticker() {
   )
 }
 
+// ── Product image with fallback ───────────────────────────────────────────────
+function ProductImage({ images = [], name = '', className = '', style = {} }) {
+  const [errored, setErrored] = useState(false)
+  const src = images[0]
+  if (src && !errored) {
+    return (
+      <img
+        src={src} alt={name}
+        onError={() => setErrored(true)}
+        className={`w-full h-full object-cover ${className}`}
+        style={style}
+      />
+    )
+  }
+  return (
+    <div className={`flex items-center justify-center relative ${className}`} style={style}>
+      <div className="font-mono font-bold select-none"
+        style={{ fontSize: 'clamp(40px,9vw,90px)', color: 'rgba(255,255,255,0.04)' }}>
+        2AM
+      </div>
+      <div className="absolute bottom-4 left-6 font-mono text-[7px] tracking-[3px] text-white/12 uppercase">— IMAGE COMING —</div>
+    </div>
+  )
+}
+
+// ── Product data hook ─────────────────────────────────────────────────────────
+function useProducts() {
+  const [products, setProducts] = useState(FALLBACK_PRODUCTS)
+  const [loading, setLoading]   = useState(true)
+  const [source, setSource]     = useState('fallback')
+
+  useEffect(() => {
+    let cancelled = false
+    fetch(`${API_URL}/api/products`)
+      .then(r => r.json())
+      .then(({ products: live = [], source: src }) => {
+        if (cancelled) return
+        if (live.length > 0) {
+          setProducts(live)
+          setSource(src || 'printify')
+        }
+        setLoading(false)
+      })
+      .catch(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => { cancelled = true }
+  }, [])
+
+  return { products, loading, source }
+}
+
 // ── Nav ────────────────────────────────────────────────────────────────────────
 function Nav({ route }) {
   const [scrolled, setScrolled] = useState(false)
@@ -146,7 +180,9 @@ function Nav({ route }) {
       </button>
       <nav className="flex items-center gap-6">
         <button onClick={() => navigate('#/cases')}
-          className={`font-mono text-[9px] tracking-[3px] uppercase transition-colors ${route.startsWith('#/cases') || route.startsWith('#/product') ? 'text-[#FF4D00]' : 'text-white/40 hover:text-white/80'}`}>
+          className={`font-mono text-[9px] tracking-[3px] uppercase transition-colors ${
+            route.startsWith('#/cases') || route.startsWith('#/product')
+              ? 'text-[#FF4D00]' : 'text-white/40 hover:text-white/80'}`}>
           Cases
         </button>
         <button onClick={() => document.getElementById('about')?.scrollIntoView({ behavior: 'smooth' })}
@@ -165,7 +201,7 @@ function Nav({ route }) {
 // ═══════════════════════════════════════════════════════════════════════════════
 //  HOME
 // ═══════════════════════════════════════════════════════════════════════════════
-function HomePage() {
+function HomePage({ products, loading }) {
   const [loaded, setLoaded] = useState(false)
   useEffect(() => { setTimeout(() => setLoaded(true), 80) }, [])
 
@@ -175,11 +211,10 @@ function HomePage() {
     transition: { duration: 0.65, ease: [0.22, 1, 0.36, 1], delay: d },
   })
 
-  const liveProduct = PRODUCTS.find(p => p.live)
+  const liveProduct = products.find(p => p.live)
 
   return (
     <div>
-      {/* ── Hero ── */}
       <section className="relative min-h-screen flex flex-col justify-between px-6 md:px-12 pt-24 pb-0"
         style={{ background: '#080808' }}>
         <div className="pointer-events-none absolute inset-0 overflow-hidden">
@@ -207,28 +242,25 @@ function HomePage() {
             iPhone 16 Pro · MagSafe · Drop Certified · CNC
           </motion.div>
           <motion.div {...fade(0.38)} className="flex flex-wrap gap-4">
-            <Btn variant="primary" onClick={() => navigate('#/cases')}>
-              Shop Cases ▶
-            </Btn>
+            <Btn variant="primary" onClick={() => navigate('#/cases')}>Shop Cases ▶</Btn>
             {liveProduct && (
-              <Btn variant="ghost" href={liveProduct.squareUrl}>
-                Buy Now — {liveProduct.price}
-              </Btn>
+              <Btn variant="ghost" href={SQ_BASE}>Buy Now — {liveProduct.price}</Btn>
             )}
           </motion.div>
         </div>
 
-        <motion.div {...fade(0.5)} className="relative z-10 pt-16">
-          <Ticker />
-        </motion.div>
+        <motion.div {...fade(0.5)} className="relative z-10 pt-16"><Ticker /></motion.div>
       </section>
 
-      {/* ── Featured product ── */}
+      {/* Featured */}
       <section className="px-6 md:px-12 py-20" style={{ background: '#080808' }}>
         <Reveal>
           <div className="flex items-center gap-4 mb-12">
             <span className="font-mono text-[9px] tracking-[5px] text-[#FF4D00]/60 uppercase">// Now Available</span>
             <div className="flex-1 h-px" style={{ background: 'rgba(255,255,255,0.05)' }} />
+            {loading && (
+              <span className="font-mono text-[8px] tracking-[2px] text-white/20 uppercase">Syncing Printify…</span>
+            )}
           </div>
         </Reveal>
         {liveProduct && (
@@ -238,35 +270,33 @@ function HomePage() {
         )}
       </section>
 
-      {/* ── About ── */}
+      {/* About */}
       <section id="about" className="px-6 md:px-12 py-20 border-t" style={{ borderColor: 'rgba(255,255,255,0.05)' }}>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-12 max-w-4xl">
           <Reveal>
             <div>
               <div className="font-mono text-[9px] tracking-[5px] text-[#FF4D00]/50 uppercase mb-6">// The Brand</div>
               <p className="font-mono text-[13px] leading-8 text-white/45 mb-4">
-                2AM is a Night.inc brand. We make cases for iPhone — built for
-                founders, operators, and builders who are still working when
-                everyone else has gone to bed.
+                2AM is a Night.inc brand. We make cases for iPhone — built for founders,
+                operators, and builders who are still working when everyone else has gone to bed.
               </p>
               <p className="font-mono text-[12px] leading-7 text-white/25">
-                No lifestyle branding. No drops. Just precision hardware,
-                shipped fast, designed to last.
+                No lifestyle branding. No drops. Just precision hardware, shipped fast, designed to last.
               </p>
             </div>
           </Reveal>
           <Reveal delay={0.1}>
-            <div className="space-y-0 border" style={{ borderColor: 'rgba(255,255,255,0.06)', background: '#0d0d0d' }}>
+            <div className="border" style={{ borderColor: 'rgba(255,255,255,0.06)', background: '#0d0d0d' }}>
               {[
-                ['Founded',     'Night.inc — 2026'],
-                ['Category',   'Mobile Protective Cases'],
-                ['Material',   'CNC Polycarbonate'],
-                ['Fulfillment','Night.inc × Printify'],
-                ['Checkout',   'Square — Encrypted'],
+                ['Founded',      'Night.inc — 2026'],
+                ['Category',    'Mobile Protective Cases'],
+                ['Material',    'CNC Polycarbonate'],
+                ['Fulfillment', 'Night.inc × Printify'],
+                ['Checkout',    'Square — Encrypted'],
               ].map(([k, v]) => (
                 <div key={k} className="px-6 py-4 flex items-center justify-between border-b last:border-b-0"
                   style={{ borderColor: 'rgba(255,255,255,0.04)' }}>
-                  <span className="font-mono text-[9px] tracking-[1px] text-white/28">{k}</span>
+                  <span className="font-mono text-[9px] text-white/28">{k}</span>
                   <span className="font-mono text-[9px] font-semibold text-white/60">{v}</span>
                 </div>
               ))}
@@ -287,9 +317,8 @@ function FeaturedCard({ product }) {
       className="relative border overflow-hidden cursor-pointer"
       animate={{ borderColor: hovered ? 'rgba(255,77,0,0.3)' : 'rgba(255,255,255,0.06)' }}
       transition={{ duration: 0.22 }}
-      style={{ borderColor: 'rgba(255,255,255,0.06)', background: '#0d0d0d' }}
-      onClick={() => navigate(`#/product/${product.id}`)}
-    >
+      style={{ background: '#0d0d0d' }}
+      onClick={() => navigate(`#/product/${product.id}`)}>
       <motion.div className="absolute top-0 left-0 right-0 h-px pointer-events-none"
         animate={{ opacity: hovered ? 1 : 0.3 }}
         style={{ background: 'linear-gradient(90deg, #FF4D00, transparent 50%)' }} />
@@ -298,20 +327,13 @@ function FeaturedCard({ product }) {
         style={{ background: 'radial-gradient(ellipse 60% 60% at 15% 30%, rgba(255,77,0,0.07), transparent)' }} />
 
       <div className="relative z-10 grid grid-cols-1 md:grid-cols-2">
-        {/* Image zone */}
-        <div className="h-64 md:h-80 flex items-center justify-center relative overflow-hidden"
+        <div className="h-64 md:h-80 relative overflow-hidden"
           style={{ borderRight: '1px solid rgba(255,255,255,0.05)' }}>
-          <div className="font-mono font-bold select-none"
-            style={{ fontSize: 'clamp(48px,10vw,100px)', color: 'rgba(255,255,255,0.04)' }}>
-            2AM
-          </div>
-          <div className="absolute bottom-4 left-6 font-mono text-[7px] tracking-[3px] text-white/15">— IMAGE COMING —</div>
+          <ProductImage images={product.images} name={product.name} className="h-full" />
         </div>
-
-        {/* Info */}
         <div className="p-8 md:p-10 flex flex-col justify-between">
           <div>
-            <div className="flex items-center justify-between mb-6">
+            <div className="flex items-start justify-between mb-6">
               <div>
                 <div className="font-mono text-[8px] tracking-[4px] text-white/30 mb-1">{product.variant}</div>
                 <div className="font-mono text-xl font-bold tracking-tight" style={{ color: '#F5F5F5' }}>{product.name}</div>
@@ -326,7 +348,7 @@ function FeaturedCard({ product }) {
             </div>
             <p className="font-mono text-[11px] leading-relaxed text-white/35 mb-8">{product.body}</p>
             <div className="grid grid-cols-2 gap-x-4 gap-y-2 mb-8">
-              {product.specs.slice(0, 4).map(([k, v]) => (
+              {(product.specs || []).slice(0, 4).map(([k, v]) => (
                 <div key={k} className="flex items-center gap-2">
                   <span className="w-1 h-1 rounded-full bg-[#FF4D00] opacity-50 flex-shrink-0" />
                   <span className="font-mono text-[9px] text-white/35">{v}</span>
@@ -335,8 +357,8 @@ function FeaturedCard({ product }) {
             </div>
           </div>
           <div className="flex flex-wrap gap-3">
-            <Btn href={product.squareUrl} variant="primary">Buy with Square ▶</Btn>
-            <Btn variant="ghost" onClick={(e) => { e.stopPropagation(); navigate(`#/product/${product.id}`) }}>
+            <Btn href={SQ_BASE} variant="primary">Buy with Square ▶</Btn>
+            <Btn variant="ghost" onClick={e => { e.stopPropagation(); navigate(`#/product/${product.id}`) }}>
               Details →
             </Btn>
           </div>
@@ -349,20 +371,25 @@ function FeaturedCard({ product }) {
 // ═══════════════════════════════════════════════════════════════════════════════
 //  CASES CATALOG
 // ═══════════════════════════════════════════════════════════════════════════════
-function CasesPage() {
+function CasesPage({ products, loading }) {
   return (
     <div className="px-6 md:px-12 py-24" style={{ background: '#080808', minHeight: '100vh' }}>
       <Reveal>
         <div className="font-mono text-[9px] tracking-[6px] text-white/25 mb-3 uppercase">// 2AM Cases</div>
-        <h1 className="font-mono text-3xl md:text-5xl font-bold tracking-tighter mb-12" style={{ color: '#F5F5F5' }}>
-          All Cases
-        </h1>
+        <div className="flex items-end gap-4 mb-12">
+          <h1 className="font-mono text-3xl md:text-5xl font-bold tracking-tighter" style={{ color: '#F5F5F5' }}>
+            All Cases
+          </h1>
+          {loading
+            ? <span className="font-mono text-[8px] tracking-[2px] text-white/20 uppercase mb-1">Syncing…</span>
+            : <span className="font-mono text-[8px] tracking-[2px] text-white/20 uppercase mb-1">{products.length} products</span>
+          }
+        </div>
       </Reveal>
-
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-px"
         style={{ background: 'rgba(255,255,255,0.04)' }}>
-        {PRODUCTS.map((p, i) => (
-          <Reveal key={p.id} delay={i * 0.07}>
+        {products.map((p, i) => (
+          <Reveal key={p.id} delay={i * 0.06}>
             <CatalogCard product={p} />
           </Reveal>
         ))}
@@ -373,33 +400,28 @@ function CasesPage() {
 
 function CatalogCard({ product }) {
   const [hovered, setHovered] = useState(false)
-  const { id, name, variant, price, status, live, body } = product
+  const { id, name, variant, price, status, live, body, images } = product
   return (
     <motion.div
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       onClick={() => live && navigate(`#/product/${id}`)}
       className="relative flex flex-col border overflow-hidden"
-      animate={{ borderColor: hovered && live ? 'rgba(255,77,0,0.28)' : 'rgba(255,255,255,0.0)' }}
-      style={{ borderColor: 'rgba(255,255,255,0)', background: '#0d0d0d', cursor: live ? 'pointer' : 'default' }}
-    >
+      animate={{ borderColor: hovered && live ? 'rgba(255,77,0,0.28)' : 'rgba(255,255,255,0)' }}
+      style={{ background: '#0d0d0d', cursor: live ? 'pointer' : 'default' }}>
       <motion.div className="absolute top-0 left-0 right-0 h-px pointer-events-none"
-        animate={{ opacity: hovered && live ? 1 : 0.2 }}
+        animate={{ opacity: hovered && live ? 1 : 0.15 }}
         style={{ background: 'linear-gradient(90deg, #FF4D00, transparent 55%)' }} />
 
-      {/* Image zone */}
-      <div className="h-48 flex items-center justify-center relative overflow-hidden"
+      <div className="h-48 relative overflow-hidden"
         style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
         {!live && (
-          <div className="absolute inset-0 flex items-center justify-center"
-            style={{ background: 'rgba(8,8,8,0.6)', backdropFilter: 'blur(2px)', zIndex: 10 }}>
+          <div className="absolute inset-0 z-10 flex items-center justify-center"
+            style={{ background: 'rgba(8,8,8,0.65)', backdropFilter: 'blur(2px)' }}>
             <span className="font-mono text-[8px] tracking-[4px] text-white/30 uppercase">Coming Soon</span>
           </div>
         )}
-        <div className="font-mono font-bold select-none"
-          style={{ fontSize: '56px', color: 'rgba(255,255,255,0.04)' }}>
-          2AM
-        </div>
+        <ProductImage images={images} name={name} className="h-full" />
       </div>
 
       <div className="p-6 flex flex-col flex-1 gap-3">
@@ -409,18 +431,20 @@ function CatalogCard({ product }) {
             <div className="font-mono text-[13px] font-semibold" style={{ color: '#F5F5F5' }}>{name}</div>
           </div>
           <div className="text-right">
-            <div className="font-mono text-[15px] font-bold" style={{ color: live ? '#FF4D00' : 'rgba(255,255,255,0.2)' }}>{price}</div>
+            <div className="font-mono text-[15px] font-bold"
+              style={{ color: live ? '#FF4D00' : 'rgba(255,255,255,0.2)' }}>{price}</div>
             <div className="flex items-center gap-1 justify-end mt-1">
-              <span className="w-1 h-1 rounded-full" style={{ background: live ? '#22C55E' : 'rgba(255,255,255,0.2)' }} />
+              <span className="w-1 h-1 rounded-full"
+                style={{ background: live ? '#22C55E' : 'rgba(255,255,255,0.2)' }} />
               <span className="font-mono text-[7px] tracking-[1px] text-white/25">{status}</span>
             </div>
           </div>
         </div>
-        <p className="font-mono text-[10px] leading-relaxed text-white/28 flex-1">{body}</p>
+        <p className="font-mono text-[10px] leading-relaxed text-white/28 flex-1 line-clamp-3">{body}</p>
         <div className="pt-1">
           {live
             ? <Btn variant="primary" onClick={() => navigate(`#/product/${id}`)}>View Case →</Btn>
-            : <Btn variant="ghost" disabled>Notify Me</Btn>
+            : <Btn variant="ghost" disabled>Coming Soon</Btn>
           }
         </div>
       </div>
@@ -431,110 +455,105 @@ function CatalogCard({ product }) {
 // ═══════════════════════════════════════════════════════════════════════════════
 //  PRODUCT DETAIL
 // ═══════════════════════════════════════════════════════════════════════════════
-function ProductPage({ productId }) {
-  const product = PRODUCTS.find(p => p.id === productId)
+function ProductPage({ productId, products }) {
+  const product = products.find(p => p.id === productId) || products[0]
   if (!product) return (
     <div className="flex items-center justify-center min-h-screen">
       <div className="text-center space-y-4">
-        <div className="font-mono text-[9px] tracking-[4px] text-white/30">404 — NOT FOUND</div>
+        <div className="font-mono text-[9px] tracking-[4px] text-white/30">NOT FOUND</div>
         <Btn variant="ghost" onClick={() => navigate('#/cases')}>← Back to Cases</Btn>
       </div>
     </div>
   )
 
-  const { name, variant, price, status, live, body, specs, squareUrl } = product
+  const { name, variant, price, status, live, body, specs, images } = product
+  const [activeImg, setActiveImg] = useState(0)
 
   return (
     <div>
-      {/* Hero */}
-      <section className="relative pt-14 min-h-[52vh] flex items-end overflow-hidden"
+      <section className="relative pt-14 overflow-hidden"
         style={{ background: '#0a0a0a', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
         <div className="absolute inset-0 pointer-events-none"
-          style={{ background: 'radial-gradient(ellipse 80% 70% at 20% 40%, rgba(255,77,0,0.06), transparent)' }} />
-        <div className="absolute inset-0 flex items-center justify-center pointer-events-none select-none">
-          <div className="font-mono font-bold tracking-tighter"
-            style={{ fontSize: 'clamp(80px,20vw,260px)', color: 'rgba(255,255,255,0.025)', lineHeight: 1 }}>
-            2AM
+          style={{ background: 'radial-gradient(ellipse 80% 70% at 20% 40%, rgba(255,77,0,0.05), transparent)' }} />
+
+        <div className="relative z-10 grid grid-cols-1 lg:grid-cols-2 min-h-[60vh]">
+          {/* Image panel */}
+          <div className="relative flex flex-col" style={{ borderRight: '1px solid rgba(255,255,255,0.05)' }}>
+            <div className="flex-1 min-h-[300px] lg:min-h-[500px]">
+              <ProductImage images={images} name={name} className="h-full min-h-[300px]" />
+            </div>
+            {images.length > 1 && (
+              <div className="flex gap-2 p-4" style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+                {images.map((src, i) => (
+                  <button key={i} onClick={() => setActiveImg(i)}
+                    className="w-12 h-12 border overflow-hidden transition-all"
+                    style={{ borderColor: i === activeImg ? '#FF4D00' : 'rgba(255,255,255,0.1)' }}>
+                    <img src={src} alt="" className="w-full h-full object-cover" />
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
-        </div>
-        <div className="relative z-10 w-full px-6 md:px-12 pb-10 flex flex-col sm:flex-row items-start sm:items-end justify-between gap-6">
-          <div>
-            <button onClick={() => navigate('#/cases')}
-              className="font-mono text-[8px] tracking-[3px] text-white/30 hover:text-white/60 uppercase mb-4 flex items-center gap-2 transition-colors">
-              ← Cases
-            </button>
-            <div className="font-mono text-[8px] tracking-[4px] text-white/30 mb-1 uppercase">{variant}</div>
-            <h1 className="font-mono text-3xl md:text-4xl font-bold tracking-tight" style={{ color: '#F5F5F5' }}>{name}</h1>
-          </div>
-          <div className="text-right">
-            <div className="font-mono text-3xl font-bold mb-1" style={{ color: live ? '#FF4D00' : 'rgba(255,255,255,0.3)' }}>{price}</div>
-            <div className="flex items-center gap-2 justify-end">
-              <span className="w-1.5 h-1.5 rounded-full" style={{ background: live ? '#22C55E' : 'rgba(255,255,255,0.25)' }} />
-              <span className="font-mono text-[8px] tracking-[2px] text-white/35">{status}</span>
+
+          {/* Info panel */}
+          <div className="p-8 md:p-12 flex flex-col justify-between">
+            <div>
+              <button onClick={() => navigate('#/cases')}
+                className="font-mono text-[8px] tracking-[3px] text-white/30 hover:text-white/60 uppercase mb-6 flex items-center gap-2 transition-colors">
+                ← Cases
+              </button>
+              <div className="font-mono text-[8px] tracking-[4px] text-white/30 mb-1 uppercase">{variant}</div>
+              <h1 className="font-mono text-2xl md:text-3xl font-bold tracking-tight mb-4"
+                style={{ color: '#F5F5F5' }}>{name}</h1>
+              <div className="font-mono text-3xl font-bold mb-2"
+                style={{ color: live ? '#FF4D00' : 'rgba(255,255,255,0.3)' }}>{price}</div>
+              <div className="flex items-center gap-2 mb-8">
+                <span className="w-1.5 h-1.5 rounded-full"
+                  style={{ background: live ? '#22C55E' : 'rgba(255,255,255,0.25)' }} />
+                <span className="font-mono text-[8px] tracking-[2px] text-white/35">{status}</span>
+              </div>
+            </div>
+            <div className="space-y-6">
+              <p className="font-mono text-[12px] leading-7 text-white/45">{body}</p>
+              <div className="flex flex-wrap gap-3">
+                <Btn href={SQ_BASE} variant="primary" disabled={!live}>
+                  {live ? 'Buy with Square ▶' : 'Coming Soon'}
+                </Btn>
+              </div>
+              {live && (
+                <div className="flex flex-wrap gap-2">
+                  {['■ Square Encrypted', '⚡ SSL', '↩ No Hidden Fees'].map(t => (
+                    <div key={t} className="border px-3 py-1.5 font-mono text-[7px] tracking-[2px] text-white/22 uppercase"
+                      style={{ borderColor: 'rgba(255,255,255,0.07)' }}>{t}</div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>
       </section>
 
-      {/* Detail */}
+      {/* Specs */}
       <section className="px-6 md:px-12 py-16" style={{ background: '#080808' }}>
-        <div className="grid grid-cols-1 lg:grid-cols-5 gap-12 lg:gap-20 max-w-6xl">
-          <div className="lg:col-span-3 space-y-6">
-            <Reveal>
-              <p className="font-mono text-[13px] leading-8 text-white/55">{body}</p>
-            </Reveal>
-            <Reveal delay={0.06}>
-              <div className="flex flex-wrap gap-4 pt-4">
-                <Btn href={squareUrl} variant="primary" disabled={!live}>
-                  {live ? 'Buy with Square ▶' : 'Coming Soon'}
-                </Btn>
-                {live && (
-                  <div className="self-center font-mono text-[8px] tracking-[2px] text-white/20 uppercase">
-                    Secure checkout via Square
-                  </div>
-                )}
+        <Reveal>
+          <div className="max-w-lg border" style={{ borderColor: 'rgba(255,255,255,0.07)', background: '#0d0d0d' }}>
+            <div className="px-6 py-4 border-b flex items-center justify-between"
+              style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
+              <span className="font-mono text-[8px] tracking-[4px] text-white/28">SPECIFICATIONS</span>
+              <span className="font-mono text-[8px] tracking-[2px] text-[#FF4D00]/60">REV 1.0</span>
+            </div>
+            {(specs || []).map(([k, v]) => (
+              <div key={k} className="px-6 py-3.5 flex items-center justify-between border-b last:border-b-0"
+                style={{ borderColor: 'rgba(255,255,255,0.04)' }}>
+                <span className="font-mono text-[9px] text-white/28">{k}</span>
+                <span className="font-mono text-[9px] font-semibold text-white/65 text-right max-w-[55%]">{v}</span>
               </div>
-            </Reveal>
-            {live && (
-              <Reveal delay={0.1}>
-                <div className="flex flex-wrap items-center gap-3 pt-1">
-                  {['■ Powered by Square', '⚡ SSL Encrypted', '↩ No Hidden Fees'].map(t => (
-                    <div key={t} className="border px-3 py-1.5 font-mono text-[7px] tracking-[2px] text-white/22 uppercase"
-                      style={{ borderColor: 'rgba(255,255,255,0.07)' }}>{t}</div>
-                  ))}
-                </div>
-              </Reveal>
-            )}
+            ))}
           </div>
-
-          {/* Specs */}
-          <div className="lg:col-span-2">
-            <Reveal delay={0.08}>
-              <div className="border sticky top-20" style={{ borderColor: 'rgba(255,255,255,0.07)', background: '#0d0d0d' }}>
-                <div className="px-6 py-4 border-b flex items-center justify-between"
-                  style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
-                  <span className="font-mono text-[8px] tracking-[4px] text-white/28">SPECIFICATIONS</span>
-                  <span className="font-mono text-[8px] tracking-[2px] text-[#FF4D00]/60">REV 1.0</span>
-                </div>
-                {specs.map(([k, v]) => (
-                  <div key={k} className="px-6 py-3.5 flex items-center justify-between border-b last:border-b-0"
-                    style={{ borderColor: 'rgba(255,255,255,0.04)' }}>
-                    <span className="font-mono text-[9px] text-white/28">{k}</span>
-                    <span className="font-mono text-[9px] font-semibold text-white/62 text-right max-w-[55%]">{v}</span>
-                  </div>
-                ))}
-                <div className="px-6 py-5 border-t" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
-                  <Btn href={squareUrl} variant="primary" disabled={!live} className="w-full justify-center">
-                    {live ? `Buy Now — ${price} ▶` : 'Coming Soon'}
-                  </Btn>
-                </div>
-              </div>
-            </Reveal>
-          </div>
-        </div>
+        </Reveal>
       </section>
 
-      {/* Other cases */}
+      {/* More cases */}
       <section className="px-6 md:px-12 py-16 border-t" style={{ borderColor: 'rgba(255,255,255,0.05)' }}>
         <Reveal>
           <div className="flex items-center gap-4 mb-10">
@@ -544,7 +563,7 @@ function ProductPage({ productId }) {
         </Reveal>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-px"
           style={{ background: 'rgba(255,255,255,0.04)' }}>
-          {PRODUCTS.filter(p => p.id !== productId).map((p, i) => (
+          {products.filter(p => p.id !== productId).slice(0, 3).map((p, i) => (
             <Reveal key={p.id} delay={i * 0.07}>
               <CatalogCard product={p} />
             </Reveal>
@@ -555,9 +574,7 @@ function ProductPage({ productId }) {
   )
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-//  FOOTER
-// ═══════════════════════════════════════════════════════════════════════════════
+// ── Footer ────────────────────────────────────────────────────────────────────
 function Footer() {
   return (
     <footer className="border-t px-6 md:px-12 py-8 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4"
@@ -570,7 +587,11 @@ function Footer() {
           className="font-mono text-[8px] tracking-[2px] text-white/18 hover:text-white/50 transition-colors uppercase">
           Cases
         </button>
-        <a href="https://night.inc" target="_blank" rel="noopener noreferrer"
+        <a href="https://clikey.store" target="_blank" rel="noopener noreferrer"
+          className="font-mono text-[8px] tracking-[2px] text-white/18 hover:text-white/50 transition-colors uppercase">
+          Clikey ↗
+        </a>
+        <a href="https://nighthq.website" target="_blank" rel="noopener noreferrer"
           className="font-mono text-[8px] tracking-[2px] text-white/18 hover:text-[#FF4D00]/60 transition-colors uppercase">
           Night.inc ↗
         </a>
@@ -583,7 +604,9 @@ function Footer() {
 //  ROOT
 // ═══════════════════════════════════════════════════════════════════════════════
 export default function App() {
-  const route = useRoute()
+  const route            = useRoute()
+  const { products, loading } = useProducts()
+
   const productMatch = route.match(/^#\/product\/(.+)$/)
   const productId    = productMatch ? productMatch[1] : null
   const isCases      = route === '#/cases'
@@ -598,9 +621,9 @@ export default function App() {
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: -6 }}
           transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}>
-          {productId  ? <ProductPage productId={productId} /> :
-           isCases    ? <CasesPage /> :
-                        <HomePage />}
+          {productId ? <ProductPage productId={productId} products={products} />
+          : isCases  ? <CasesPage products={products} loading={loading} />
+          :             <HomePage products={products} loading={loading} />}
         </motion.main>
       </AnimatePresence>
       <Footer />
